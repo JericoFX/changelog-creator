@@ -8,7 +8,7 @@ local function IsFilePresent(filename)
 	return f and true or false
 end
 
-Citizen.CreateThread(function()
+CreateThread(function()
 	if not Config.Webhook or not IsFilePresent(Config.FileName) then
 		print("^1Could not find Webhook and/or Config. Ensure they are both present in your cfg!^7")
 		return
