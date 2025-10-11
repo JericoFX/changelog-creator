@@ -393,6 +393,12 @@ button.small {
   font-style: italic;
 }
 
+.status.success {
+  color: #6be3a3;
+  font-style: normal;
+  font-weight: 600;
+}
+
 .error {
   color: #f28f8f;
   padding: 0.75rem 1rem;

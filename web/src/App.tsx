@@ -24,7 +24,7 @@ type ChangeView = {
   text: string;
 };
 
-const DEFAULT_FILE_PATH = '../changelogs/changelog.json';
+const DEFAULT_FILE_PATH = '/changelogs/changelog.json';
 
 const DEFAULT_DATA: ChangelogData = {
   Version: '',
@@ -76,10 +76,12 @@ const App = () => {
   const [filePath, setFilePath] = createSignal(DEFAULT_FILE_PATH);
   const [isLoading, setIsLoading] = createSignal(true);
   const [error, setError] = createSignal<string>();
+  const [saveMessage, setSaveMessage] = createSignal<string>();
   const [selectedHistoryIndex, setSelectedHistoryIndex] = createSignal(-1);
   const [newChangeType, setNewChangeType] = createSignal<ChangeView['category']>('additions');
   const [newChangeText, setNewChangeText] = createSignal('');
   const [releaseNotes, setReleaseNotes] = createSignal('');
+  const [isSaving, setIsSaving] = createSignal(false);
 
   const parsedChanges = createMemo<ChangeView[]>(() =>
     data.Changes.map((change, index) => {
@@ -111,14 +113,31 @@ const App = () => {
     return index >= 0 && index < history.length ? history[index] : undefined;
   });
 
-  const handleFetch = async (path?: string) => {
-    const target = path ?? filePath();
-    setIsLoading(true);
-    setError(undefined);
+  const resolvePath = (input: string) => {
+    if (/^https?:\/\//i.test(input)) {
+      return input;
+    }
 
     try {
-      const response = await fetch(target, {
-        headers: { 'Cache-Control': 'no-cache' }
+      const url = new URL(input, window.location.origin);
+      return url.pathname + url.search;
+    } catch {
+      return input;
+    }
+  };
+
+  const handleFetch = async (path?: string) => {
+    const target = path ?? filePath();
+    const resolved = resolvePath(target);
+    console.debug('[Changelog Creator] intentando cargar changelog desde', resolved);
+    setIsLoading(true);
+    setError(undefined);
+    setSaveMessage('');
+
+    try {
+      const response = await fetch(resolved, {
+        headers: { 'Cache-Control': 'no-cache' },
+        cache: 'no-store'
       });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -126,18 +145,54 @@ const App = () => {
       const raw = await response.json();
       const normalized = normalizeData(raw);
       setData(normalized);
+      console.debug(
+        '[Changelog Creator] changelog cargado',
+        { cambios: normalized.Changes.length, historial: normalized.History.length }
+      );
       setSelectedHistoryIndex(-1);
       setReleaseNotes('');
       if (path) {
-        setFilePath(path);
+        setFilePath(target);
       }
     } catch (fetchError) {
-      console.error(fetchError);
+      console.error('[Changelog Creator] error al cargar el changelog', fetchError);
       setError(
         'No se pudo cargar el changelog. Comprueba la ruta, que el archivo exista y que el servidor permita su lectura.'
       );
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveToFile = async () => {
+    const target = filePath();
+    const resolved = resolvePath(target);
+    const payload = JSON.stringify(data, null, 2);
+    console.debug('[Changelog Creator] intentando guardar changelog en', resolved);
+    setIsSaving(true);
+    setError(undefined);
+    setSaveMessage('');
+
+    try {
+      const response = await fetch(resolved, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload
+      });
+
+      if (!response.ok && response.status !== 204) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      console.debug('[Changelog Creator] changelog guardado correctamente en', resolved);
+      setSaveMessage('Cambios guardados correctamente en el archivo.');
+    } catch (saveError) {
+      console.error('[Changelog Creator] error al guardar el changelog', saveError);
+      setError(
+        'No se pudo guardar el changelog en el archivo indicado. Comprueba permisos y que estés ejecutando el servidor de desarrollo.'
+      );
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -251,10 +306,16 @@ const App = () => {
             <button type="button" class="secondary" onClick={downloadJson} disabled={!changeCount()}>
               Descargar JSON
             </button>
+            <button type="button" onClick={handleSaveToFile} disabled={isSaving()}>
+              {isSaving() ? 'Guardando…' : 'Guardar archivo'}
+            </button>
           </div>
         </div>
         <Show when={error()}>
           {(message) => <p class="error">{message}</p>}
+        </Show>
+        <Show when={saveMessage()}>
+          {(message) => <p class="status success">{message}</p>}
         </Show>
         <Show when={isLoading()}>
           <p class="status">Cargando changelog…</p>
